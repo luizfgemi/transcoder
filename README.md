@@ -1,15 +1,12 @@
-# Remux Dispatcher
+# Transcoder
 
-Serviço container-first para avaliar, agendar e executar remuxes seletivos na stack
-Radarr/Sonarr/Plex. O projeto está sendo implementado por fases conforme `PLAN.md`.
+Container-first service to evaluate, schedule, and execute selective remuxes across the Radarr/Sonarr/Plex stack. The project is being implemented in phases as documented in `PLAN.md`.
 
-Estado atual: fases 0 a 8 concluídas e rollout inicial da Fase 9 ativo. Unmanic está
-parado no profile `legacy`; hooks, execução imediata, agenda e cota do dispatcher estão
-ativos. A remoção definitiva do legado aguarda o primeiro ciclo completo agendado.
+Current state: Phases 0 to 8 completed and initial Phase 9 rollout active. Unmanic is stopped in the `legacy` profile; hooks, immediate execution, schedule, and dispatcher quota are active. Final removal of legacy components awaits the first full scheduled cycle.
 
-## Desenvolvimento
+## Development
 
-Requer Python 3.12.
+Requires Python 3.12.
 
 ```bash
 python3 -m venv .venv
@@ -17,128 +14,97 @@ python3 -m venv .venv
 .venv/bin/pytest
 ```
 
-O servidor requer `TRANSCODER_API_KEY` com pelo menos 16 caracteres. Paths e
-estado usam defaults containerizados, mas podem ser substituídos em desenvolvimento.
+The server requires `TRANSCODER_API_KEY` to be at least 16 characters long. Paths and state use containerized defaults, but can be overridden during development.
 
 ```bash
 TRANSCODER_API_KEY=your-key .venv/bin/python -m app.main
 ```
 
-Endpoints disponíveis nesta fase:
+Available endpoints in this phase:
 
 - `GET /api/v1/health`
 - `GET /api/v1/status`
 - `POST /api/v1/reports`
-- `POST /api/v1/webhooks/radarr` (sem autenticação)
-- `POST /api/v1/webhooks/sonarr` (sem autenticação)
+- `POST /api/v1/webhooks/radarr` (unauthenticated)
+- `POST /api/v1/webhooks/sonarr` (unauthenticated)
 - `GET /api/v1/media?state=`
 - `GET /api/v1/search?q=`
 - `POST /api/v1/manual-runs`
 - `GET /api/v1/manual-runs/{id}`
 - `POST /api/v1/jobs/{id}/cancel`
 
-Todos exigem o header `X-API-Key`, exceto `POST /api/v1/webhooks/radarr` e `POST /api/v1/webhooks/sonarr`, que recebem os
-payloads nativos do Radarr e Sonarr e só são alcançáveis pela rede interna.
+All endpoints require the `X-API-Key` header, except `POST /api/v1/webhooks/radarr` and `POST /api/v1/webhooks/sonarr`, which accept native Radarr and Sonarr payloads and are only accessible over the internal network.
 
-## Gate da Fase 1
+## Phase 1 Gate
 
-- configuração tipada e secrets omitidos de `repr`/logs/eventos;
-- validação de roots, extensões, traversal, arquivos ocultos/parciais e symlinks;
-- SQLite em WAL com migração atômica, foreign keys e claims/transições;
-- API autenticada e health/status lidos do SQLite;
-- 16 testes automatizados e compilação de todos os módulos concluídos.
+- Typed configuration with secrets omitted from `repr`/logs/events;
+- Validation of roots, extensions, path traversal, hidden/partial files, and symlinks;
+- SQLite in WAL mode with atomic migrations, foreign keys, and claims/transitions;
+- Authenticated API and health/status read directly from SQLite;
+- 16 automated tests passed and compilation of all modules completed.
 
-## Gate da Fase 2
+## Phase 2 Gate
 
-- fingerprint por path/tamanho/mtime e estabilidade persistida no SQLite;
-- cache de probe/plano inclui fingerprint, assinatura da política e idioma original;
-- scanner não segue symlinks e ignora ocultos, parciais e extensões não permitidas;
-- política combinada cobre áudio, downmix, ordem e limite total de streams;
-- geração de uma única argv sem shell, sem execução e sem normalizações SMA;
-- preservação planejada de metadata, capítulos, attachments e disposições;
-- 36 testes automatizados e cinco reports read-only sobre mídia real.
+- Fingerprinting by path/size/mtime with stability persisted in SQLite;
+- Probe/plan cache includes fingerprint, policy signature, and original language;
+- Scanner does not follow symlinks and ignores hidden, partial, and unallowed file extensions;
+- Combined policy covers audio, downmix, track order, and total stream count limits;
+- Single-argv generation without shell, without execution, and without SMA normalizations;
+- Planned preservation of metadata, chapters, attachments, and track dispositions;
+- 36 automated tests passed and five read-only reports on real media files.
 
-Resultados reais confirmados:
+Confirmed real-world results:
 
-- `A Complete Unknown`: compatível, nenhuma argv;
-- `Beast`: DTS identificado para EAC3;
-- `House of the Dragon S01E02`: 31 → 6 streams contados, mantendo PT/EN;
-- `Darker Than Black S02E10`: japonês movido para a primeira posição;
-- `Ghost in the Shell: SAC S01E15`: FLAC + ordem, em um único plano.
+- `A Complete Unknown`: compliant, no argv generated;
+- `Beast`: DTS identified and targeted for EAC3;
+- `House of the Dragon S01E02`: stream count reduced from 31 to 6, maintaining PT/EN;
+- `Darker Than Black S02E10`: Japanese language track moved to first position;
+- `Ghost in the Shell: SAC S01E15`: FLAC audio + track ordering combined into a single plan.
 
-## Gate da Fase 3
+## Phase 3 Gate
 
-- executor aceita somente argv FFmpeg sem shell, reporta progresso e suporta
-  cancelamento gracioso;
-- validação compara duração, container, streams, codecs, canais, bitrate, HDR/DV,
-  colorimetria, capítulos, attachments, metadata e disposições;
-- espaço livre é verificado no cache e no volume final com margem;
-- saída é copiada com buffer, fsync e validação novamente ao lado da origem;
-- promoção MKV é atômica e mudança de extensão usa backup/marker recuperável;
-- hardlink mantém o arquivo de torrent enquanto troca apenas o path da biblioteca;
-- cache completo é preservado quando somente a promoção precisa ser retomada;
-- 54 testes passaram, inclusive um ciclo FFmpeg real inteiramente temporário.
+- Executor accepts only non-shell FFmpeg argv, reports progress, and supports graceful cancellation;
+- Validation compares duration, container, streams, codecs, channels, bitrate, HDR/DV, colorimetry, chapters, attachments, metadata, and dispositions;
+- Free disk space verified in both cache and target volume with margin;
+- Output copied with buffering, fsync, and re-validated alongside origin file;
+- MKV promotion is atomic and extension changes use recoverable backup/marker files;
+- Hardlinks preserve torrent files while updating only the media library path;
+- Complete cache is preserved when only the promotion phase needs to be resumed;
+- 54 tests passed, including a real, fully temporary FFmpeg cycle.
 
-## Gate da Fase 4
+## Phase 4 Gate
 
-- dias PT-BR/inglês e horários `HH:MM`, incluindo janela atravessando meia-noite;
-- janela de 24h inteiras quando `WINDOW_START == WINDOW_END` (a âncora é a data de
-  início); cota de jobs reinicia no giro da janela;
-- estado adaptativo, janela, cota e scans persistidos em SQLite com instantes UTC;
-- backlog impede novo scan; drenagem agenda confirmação para a janela seguinte;
-- scan vazio aplica cooldown por dias de calendário e missed-run espera nova janela;
-- scan em andamento é persistido e recuperado após interrupção/restart;
-- manual/import/upgrade passam fora da janela e não consomem cota;
-- jobs de scan/retry respeitam janela e cota; `0` permanece ilimitado;
-- status da API expõe decisão, janela, uso, backlog e próxima execução;
-- 68 testes automatizados passaram.
+- PT-BR/English days and `HH:MM` schedule windows, including midnight-spanning windows;
+- Full 24h window when `WINDOW_START == WINDOW_END` (anchored to start date); job quota resets when window rolls over;
+- Adaptive state, window, quota, and scans persisted in SQLite with UTC timestamps;
+- Backlog prevents new scans; drain schedules confirmation for the next window;
+- Empty scan applies calendar-day cooldown, and missed runs wait for the next window;
+- In-progress scan is persisted and recovered after interruption/restart;
+- Manual/import/upgrade tasks run outside processing window and do not consume quota;
+- Scan/retry jobs respect window and quota; `0` remains unlimited;
+- API status exposes decision, window, usage, backlog, and next scheduled run;
+- 68 automated tests passed.
 
-## Gates das fases 5 e 6
+## Phases 5 & 6 Gates
 
-- eventos Arr são persistidos com outbox na mesma transação e redelivery idempotente;
-- contratos `RefreshMovie`/`RenameMovie`, `RescanSeries`/`RenameFiles` são exatos e o
-  Sonarr renomeia somente o arquivo processado;
-- endpoint único `POST /api/v1/webhooks/arr` consome o payload nativo do Radarr/Sonarr
-  (Download/Upgrade/Rename/Delete) sem autenticação e normaliza para os eventos internos;
-- sidecars SRT/ASS/SSA/VTT/SUB/SUP/IDX preservam sufixos e pares, sem sobrescrever
-  colisões; Bazarr recebe `scan-disk` depois da convergência;
-- delete gerado pela migração para MKV preserva sidecars e estado;
-- Plex bloqueia promoção do arquivo em reprodução e falha fechado se indisponível;
-- refresh do Plex é direcionado à pasta da seção correspondente;
-- Dockerfile inclui FFmpeg e o Compose expõe agenda, cota e política diretamente;
-- 94 testes passaram; Compose, build e smoke test efêmero de healthcheck passaram.
+- Arr events persisted with outbox pattern in same transaction and idempotent redelivery;
+- Contracts `RefreshMovie`/`RenameMovie` and `RescanSeries`/`RenameFiles` are exact, and Sonarr renames only the processed file;
+- Unified endpoint `POST /api/v1/webhooks/arr` consumes native Radarr/Sonarr payloads (Download/Upgrade/Rename/Delete) without authentication and normalizes them to internal events;
+- Sidecar files (SRT/ASS/SSA/VTT/SUB/SUP/IDX) preserve suffixes and pairs without overwriting collisions; Bazarr receives `scan-disk` after convergence;
+- Deletion generated by MKV migration preserves sidecar files and state;
+- Plex blocks promotion of actively playing files and fails closed if unavailable;
+- Plex refresh targeted specifically to corresponding section directory;
+- Dockerfile includes FFmpeg and Compose directly exposes schedule, quota, and policy;
+- 94 tests passed; Compose, build, and ephemeral healthcheck smoke test passed.
 
-## Gate da Fase 7
+## Phase 7 Gate
 
-Os cinco negativos e quatro positivos foram confirmados em mounts read-only. A matriz,
-os caminhos exatos e fingerprints estão em `PHASE7_REPORT.md`. Nenhuma origem não-MKV
-atual requer ação, portanto esse cenário continuará restrito a fixture efêmera.
+Five negative and four positive test cases confirmed on read-only mounts. Matrix, exact paths, and fingerprints documented in `PHASE7_REPORT.md`. No current non-MKV media requires action, keeping this scenario restricted to ephemeral fixtures.
 
-## Gate da Fase 8 e rollout inicial
+## Phase 8 Gate & Initial Rollout
 
-Quatro arquivos reais passaram de ponta a ponta, cobrindo ordem, limite de streams,
-transcode, critérios combinados e preservação HDR/Dolby Vision. O hook real confirmou
-que Alien Covenant permanece compatível sem plano/FFmpeg. Detalhes e correções feitas
-durante o gate estão em `PHASE8_REPORT.md`.
+Four real files processed end-to-end, covering track order, stream limits, transcoding, combined criteria, and HDR/Dolby Vision preservation. Real webhook test confirmed Alien Covenant remains compliant with no plan/FFmpeg required. Full details and fixes applied during the gate documented in `PHASE8_REPORT.md`.
 
-O Compose padrão sobe `transcoder`, não Unmanic. A agenda está ativa para todos
-os dias com janela de processamento 24h (`00:00`–`00:00`), cota ilimitada e cooldown
-7 dias. A tolerância de duração da validação é configurável via
-`DURATION_TOLERANCE_SECONDS` (default 2.0; no Compose, 5.0) para absorver o artefato
-de muxer em que mkvmerge reporta o container alguns segundos mais longo que o stream
-mais longo, sem perda de conteúdo. A validação também ignora artefatos benignos de
-muxer que o FFmpeg não reproduz no remux: tags de estatísticas do mkvmerge
-(`BPS`, `NUMBER_OF_*`, `_STATISTICS_*`), `creation_time`, `Writing frontend` do StaxRip,
-prefixos `Writing*`/`Encoding*` (ex.: `Writing application`/`Writing library` do IFME),
-a normalização de `codec_tag` e a reordenação/case das chaves (a comparação usa
-chaves em minúsculas e ordenadas) — enquanto continua comparando codec, profile,
-pixel format, colorimetria, HDR/DV e streams. Radarr/Sonarr usam uma única conexão
-`Webhook` para Download/Upgrade/Rename/Delete apontando para `http://transcoder:8100/api/v1/webhooks/arr`.
+Default Compose configuration starts `transcoder` instead of Unmanic. Schedule active daily with a 24h processing window (`00:00`–`00:00`), unlimited quota, and 7-day cooldown. Validation duration tolerance configurable via `DURATION_TOLERANCE_SECONDS` (default 2.0; Compose uses 5.0) to absorb muxer artifacts where mkvmerge reports container duration slightly longer than longest stream without content loss. Validation also ignores benign muxer artifacts unhandled by FFmpeg during remux: mkvmerge statistic tags (`BPS`, `NUMBER_OF_*`, `_STATISTICS_*`), `creation_time`, StaxRip `Writing frontend`, `Writing*`/`Encoding*` prefixes (e.g., IFME `Writing application`/`Writing library`), `codec_tag` normalization, and key reordering/case (comparison uses lowercase sorted keys) — while strictly validating codec, profile, pixel format, colorimetry, HDR/DV, and streams. Radarr/Sonarr use a single `Webhook` connection for Download/Upgrade/Rename/Delete pointing to `http://transcoder:8100/api/v1/webhooks/arr`.
 
-A cada varredura o banco é reconciliado com o disco: arquivos rastreados que
-sumiram são marcados `deleted` (cancelando planos ativos), linhas `deleted`
-confirmadas ausentes há mais de `RECONCILE_DELETED_GRACE_HOURS` (default 24h) são
-removidas em cascata, e por arquivo só fica o plano terminal mais recente (estado
-atual). Se a varredura enxergar menos da metade dos arquivos rastreados (ex.: raiz
-desmontada), a reconciliação é pulada por segurança; arquivos que voltam ao disco
-são revividos automaticamente.
+On each scan, database is reconciled with disk: tracked files no longer present marked as `deleted` (canceling active plans), confirmed missing `deleted` rows older than `RECONCILE_DELETED_GRACE_HOURS` (default 24h) cascade-deleted, keeping only the most recent terminal plan per file (current state). If scan detects over 50% missing tracked files (e.g., unmounted root), reconciliation is skipped for safety; files returning to disk automatically revived.
