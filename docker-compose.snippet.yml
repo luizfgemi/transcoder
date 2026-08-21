@@ -1,0 +1,62 @@
+services:
+  transcoder:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: transcoder
+    hostname: transcoder
+    runtime: nvidia
+    environment:
+      - TZ=${TZ:-UTC}
+      - PUID=${PUID:-1000}
+      - PGID=${PGID:-1000}
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
+      - TRANSCODER_API_KEY=${TRANSCODER_API_KEY}
+      - RADARR_URL=http://radarr:7878
+      - RADARR_API_KEY=${RADARR_API_KEY}
+      - SONARR_URL=http://sonarr:8989
+      - SONARR_API_KEY=${SONARR_API_KEY}
+      - BAZARR_URL=http://bazarr:6767
+      - BAZARR_API_KEY=${BAZARR_API_KEY}
+      - PLEX_URL=http://plex:32400
+      - PLEX_TOKEN_FILE=/run/secrets/plex-preferences.xml
+      - MOVIE_ROOT=/movies
+      - SERIES_ROOT=/series
+      - API_HOST=0.0.0.0
+      - API_PORT=8100
+      - EXECUTION_ENABLED=true
+      - AUTOMATIC_SCAN_ENABLED=${TRANSCODER_AUTOMATIC_SCAN_ENABLED:-false}
+      - WINDOW_START=${TRANSCODER_WINDOW_START:-02:00}
+      - WINDOW_END=${TRANSCODER_WINDOW_END:-18:00}
+      - MAX_CONCURRENT_JOBS=1
+      - MAX_JOBS_PER_RUN=${TRANSCODER_MAX_JOBS_PER_RUN:-0}
+      - DURATION_TOLERANCE_SECONDS=5.0
+      - VIDEO_EXTENSIONS=avi,m2ts,m4v,mkv,mov,mp4,mpeg,mpg,ts,webm
+      - AUDIO_COPY_CODECS=aac,ac3,eac3
+      - SUBTITLE_KEEP_LANGUAGES=por,pt,pob,pt-br,eng,en
+    volumes:
+      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
+      - ./data:/app/data
+      - ./state:/app/state
+      - ./cache:/app/cache
+      - ${MOVIES:-/movies}:/movies
+      - ${SERIES:-/series}:/series
+      - ${DOWNLOADS:-/downloads}:/downloads
+      - ${PLEX_PREFERENCES_PATH:-/var/lib/plex/Preferences.xml}:/run/secrets/plex-preferences.xml:ro
+    devices:
+      - /dev/dxg:/dev/dxg
+    ports:
+      - 8100:8100
+    depends_on:
+      radarr:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import os,urllib.request,json; api_key=os.environ.get(\"TRANSCODER_API_KEY\", \"\"); req=urllib.request.Request(\"http://localhost:8100/api/v1/health\", headers={\"X-Api-Key\": api_key}); urllib.request.urlopen(req, timeout=5)' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    stop_grace_period: 2m
