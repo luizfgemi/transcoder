@@ -318,8 +318,8 @@ def create_app(
         return {"status": "accepted", "events": stored}
 
     @app.get("/api/v1/media", dependencies=[Depends(authenticate)])
-    def media_list(state: str | None = Query(default=None)) -> list[dict[str, object]]:
-        return db.media_files(state=state)
+    def media_list(state: str | None = Query(default=None), query: str | None = Query(default=None)) -> list[dict[str, object]]:
+        return db.list_media(state=state, query=query)
 
     @app.get("/api/v1/search", dependencies=[Depends(authenticate)])
     def search_media(q: str = Query(min_length=1)) -> list[dict[str, object]]:
