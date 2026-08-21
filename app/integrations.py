@@ -467,36 +467,86 @@ class ArrPostProcessor:
         file_id: int,
         promoted_library_path: str,
     ) -> PostprocessResult:
+        """Execute postprocessing integration with Sonarr/Radarr and Bazarr.
+
+        Contract:
+          - Perform media refresh and rename on the target Arr application.
+          - If targeted file rename fails due to an invalid/shifted file_id, attempt
+            a broader series/movie refresh to reconcile the updated file_id from disk path.
+          - Trigger Bazarr disk scan to ensure subtitle synchronization.
+          - Return strongly-typed PostprocessResult containing resolved library paths.
+        """
         client = self.radarr if arr_type.lower() == "radarr" else self.sonarr
         final_library_path = promoted_library_path
         final_arr_path = promoted_library_path
         sidecar_res = SidecarResult()
 
         if client is not None:
-            # Refresh
+            # Step 1: Refresh Arr media entry
             if hasattr(client, "refresh"):
-                cmd_id = client.refresh(media_id)
-                if self.waiter and cmd_id:
-                    self.waiter.wait(client, cmd_id)
-            # Rename
-            if hasattr(client, "rename"):
-                cmd_id = client.rename(media_id)
-                if self.waiter and cmd_id:
-                    self.waiter.wait(client, cmd_id)
-            elif hasattr(client, "rename_file"):
-                cmd_id = client.rename_file(media_id, file_id)
-                if self.waiter and cmd_id:
-                    self.waiter.wait(client, cmd_id)
-            # Final path lookup
-            if hasattr(client, "final_file_path"):
-                arr_path = client.final_file_path(media_id) if arr_type.lower() == "radarr" else client.final_file_path(media_id, file_id)
-                if arr_path:
-                    final_arr_path = arr_path
-                    mapped = self.mapper.to_library(arr_path, arr_type)
-                    final_library_path = mapped
-                    if final_library_path != promoted_library_path:
-                        sidecar_res = rename_sidecars(Path(promoted_library_path), Path(final_library_path))
+                try:
+                    cmd_id = client.refresh(media_id)
+                    if self.waiter and cmd_id:
+                        self.waiter.wait(client, cmd_id)
+                except Exception as error:
+                    logger.warning("Arr refresh failed for media_id %s: %s", media_id, error)
 
+            # Step 2: Attempt Rename
+            rename_succeeded = False
+            if hasattr(client, "rename"):
+                try:
+                    cmd_id = client.rename(media_id)
+                    if self.waiter and cmd_id:
+                        self.waiter.wait(client, cmd_id)
+                    rename_succeeded = True
+                except Exception as error:
+                    logger.warning("Arr full rename failed for media_id %s: %s", media_id, error)
+
+            if not rename_succeeded and hasattr(client, "rename_file"):
+                try:
+                    cmd_id = client.rename_file(media_id, file_id)
+                    if self.waiter and cmd_id:
+                        self.waiter.wait(client, cmd_id)
+                    rename_succeeded = True
+                except Exception as error:
+                    logger.warning(
+                        "Arr targeted file_id %s rename failed for media_id %s: %s. Re-checking disk path...",
+                        file_id, media_id, error,
+                    )
+                    # Fallback: file_id may have shifted after Arr rescan. Check if file is registered under new ID.
+                    if hasattr(client, "final_file_path"):
+                        arr_path = client.final_file_path(media_id) if arr_type.lower() == "radarr" else client.final_file_path(media_id, file_id)
+                        if not arr_path and hasattr(client, "episode_files_by_series"):
+                            # Try to find current file_id matching promoted path
+                            try:
+                                ep_files = client.episode_files_by_series(media_id)
+                                for ef in ep_files:
+                                    if ef.get("path") and Path(ef["path"]).name == Path(promoted_library_path).name:
+                                        new_file_id = int(ef["id"])
+                                        logger.info("Relocated updated file_id %s for media_id %s", new_file_id, media_id)
+                                        cmd_id = client.rename_file(media_id, new_file_id)
+                                        if self.waiter and cmd_id:
+                                            self.waiter.wait(client, cmd_id)
+                                        rename_succeeded = True
+                                        file_id = new_file_id
+                                        break
+                            except Exception as rel_err:
+                                logger.warning("Could not relocate file_id for media_id %s: %s", media_id, rel_err)
+
+            # Step 3: Final path lookup
+            if hasattr(client, "final_file_path"):
+                try:
+                    arr_path = client.final_file_path(media_id) if arr_type.lower() == "radarr" else client.final_file_path(media_id, file_id)
+                    if arr_path:
+                        final_arr_path = arr_path
+                        mapped = self.mapper.to_library(arr_path, arr_type)
+                        final_library_path = mapped
+                        if final_library_path != promoted_library_path:
+                            sidecar_res = rename_sidecars(Path(promoted_library_path), Path(final_library_path))
+                except Exception as error:
+                    logger.warning("Arr final path lookup failed: %s", error)
+
+        # Step 4: Synchronize Bazarr disk state
         if self.bazarr:
             try:
                 if hasattr(self.bazarr, "scan_disk"):
