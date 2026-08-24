@@ -2,7 +2,7 @@ services:
   transcoder:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Containerfile
     container_name: transcoder
     hostname: transcoder
     runtime: nvidia
@@ -12,7 +12,6 @@ services:
       - PGID=${PGID:-1000}
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=all
-      - LD_LIBRARY_PATH=/usr/lib/wsl/lib
       - TRANSCODER_API_KEY=${TRANSCODER_API_KEY}
       - RADARR_URL=http://radarr:7878
       - RADARR_API_KEY=${RADARR_API_KEY}
@@ -37,7 +36,6 @@ services:
       - AUDIO_COPY_CODECS=aac,ac3,eac3
       - SUBTITLE_KEEP_LANGUAGES=por,pt,pob,pt-br,eng,en
     volumes:
-      - /usr/lib/wsl/lib:/usr/lib/wsl/lib:ro
       - ./data:/app/data
       - ./state:/app/state
       - ./cache:/app/cache
@@ -45,8 +43,6 @@ services:
       - ${SERIES:-/series}:/series
       - ${DOWNLOADS:-/downloads}:/downloads
       - ${PLEX_PREFERENCES_PATH:-/var/lib/plex/Preferences.xml}:/run/secrets/plex-preferences.xml:ro
-    devices:
-      - /dev/dxg:/dev/dxg
     ports:
       - 8100:8100
     depends_on:
